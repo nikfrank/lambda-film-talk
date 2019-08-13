@@ -59,6 +59,25 @@ https://trac.ffmpeg.org/wiki/Create%20a%20thumbnail%20image%20every%20X%20second
 `ffmpeg -i assets/five.mp4 -vf fps=1 assets/out%d.png`
 
 
+let's run that from javascript
+
+`$ touch index.js`
+
+
+<sub>./src/index.js</sub>
+```js
+const { spawn } = require('child_process');
+
+const proc = spawn('ffmpeg', [
+  '-i', 'assets/five.mp4', '-vf', 'fps=1', 'assets/out%d.png'
+]);
+
+proc.on('close', (code)=>{
+  console.log(code);
+});
+```
+
+
 
 
 
