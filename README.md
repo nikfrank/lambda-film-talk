@@ -52,3 +52,14 @@ furthermore, each of the processes will be secured by a cookie jwt (uploading vi
 ## coding
 
 ### ffmpeg command
+
+https://trac.ffmpeg.org/wiki/Create%20a%20thumbnail%20image%20every%20X%20seconds%20of%20the%20video
+
+
+`ffmpeg -i assets/five.mp4 -vf fps=1 assets/out%d.png`
+
+
+
+
+
+https://superuser.com/questions/138331/using-ffmpeg-to-cut-up-video
