@@ -64,7 +64,7 @@ let's run that from javascript
 `$ touch index.js`
 
 
-<sub>./src/index.js</sub>
+<sub>./index.js</sub>
 ```js
 const { spawn } = require('child_process');
 
@@ -78,6 +78,133 @@ proc.on('close', (code)=>{
 ```
 
 
+### structuring our lambda
+
+AWS lambda will expect our `index.js` to export a function, which it will call in a specified way
+
+
+<sub>./index.js</sub>
+```js
+const { spawn } = require('child_process');
+
+exports.handler = (event, context, callback)=> {
+
+  const proc = spawn('ffmpeg', [
+    '-i', 'assets/five.mp4', '-vf', 'fps=1', 'assets/out%d.png'
+  ]);
+
+  let err = '';
+  proc.stderr.on('data', e=> err += e);
+  
+  proc.on('close', (code)=>{
+    if( code ) context.fail(err);
+    else context.succeed();
+  });
+};
+
+```
+
+a few things to take note of here
+
+- `exports.handler` is where AWS will take our function from
+- `proc.stderr.on`... will save all the error output (if any)
+- when the process finishes, we call either `context.fail` or `context.succeed`
+- `context` is an object AWS calls our function with which gives us these functions (like req / res in express)
+
+
+
+### testfile
+
+
+Now we can write a test file which will call our function the way AWS will
+
+
+`$ touch test.js`
+
+<sub>./test.js</sub>
+```js
+const filmSplitter = require('./');
+
+filmSplitter.handler('event', {
+  fail: err => console.error(err),
+  succeed: ()=> console.log('success!'),
+});
+```
+
+so now we can test the code
+
+`$ npm init -y`
+
+
+<sub>./package.json</sub>
+```js
+//...
+  "scripts": {
+    "test": "node test.js"
+  },
+//...
+```
+
+
+we should be careful to note here that the AWS runtime will not download our dependencies we list in `package.json`
+
+we will however use it locally to install `AWS`, the js SDK, in order to test the S3 download and upload features
+
+we will need to package `ffmpeg` into our lambda manually (as opposed to using the npm-module version available)
+
+
+
+### reading the filename from the event
+
+
+when we trigger our lambda from an S3 upload event, AWS will send us the necessary information about the bucket and file-key in the `event` parameter
+
+
+<sub>./index.js</sub>
+```js
+const { spawn } = require('child_process');
+const fs = require('fs');
+
+AWS.config.update({
+  region:"us-east-1",
+});
+const s3 = new AWS.S3();
+
+
+exports.handler = (event, context, callback)=> {
+
+  const FROM_BUCKET = event.Records[0].s3.bucket.name;
+  const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
+
+  //...
+```
+
+
+and we can now download the file from S3
+
+```js
+  const tmp = './tmp';
+
+  (new Promise((resolve, reject)=>
+    s3.getObject(downloadParams, (err, response)=>{
+      if(err) {
+        console.error(err.code, '-', err.message);
+        return reject(err);
+      }
+    
+      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+        err ? reject(err) : resolve()
+      )
+    })
+  ))
+```
+
+
+for this to work though, we'll need to temporarily put our AWS API key into our S3 config
+
+and we'll need to remember to change the `tmp` directory in the lambda runtime to '/tmp' and commit a .gitkeep
+
+...
 
 
 

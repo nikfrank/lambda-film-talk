@@ -1,0 +1,20 @@
+{
+  "name": "lambda-film-talk",
+  "version": "1.0.0",
+  "description": "welcome to everyone from JSil - this is the code that goes with the talk",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikfrank/lambda-film-talk.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nikfrank/lambda-film-talk/issues"
+  },
+  "homepage": "https://github.com/nikfrank/lambda-film-talk#readme"
+}
