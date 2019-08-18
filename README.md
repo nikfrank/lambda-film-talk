@@ -175,7 +175,8 @@ exports.handler = (event, context, callback)=> {
 
   const FROM_BUCKET = event.Records[0].s3.bucket.name;
   const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
-
+  const KeySlug = Key.replace('.mp4', '');
+  
   //...
 ```
 
@@ -189,7 +190,7 @@ and we can now download the file from S3
     s3.getObject(downloadParams, (err, response)=>{
       if( err ) return reject(err);
     
-      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+      fs.writeFile(tmp+'/'+Key, response.Body, err=>
         err ? reject(err) : resolve()
       )
     })
@@ -211,7 +212,7 @@ exports.handler = (event, context, callback)=> {
 
   const FROM_BUCKET = event.Records[0].s3.bucket.name;
   const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
-
+  const KeySlug = Key.replace('.mp4', '');
 
   // download the file from s3
   const downloadParams = { Bucket: FROM_BUCKET, Key };
@@ -220,14 +221,14 @@ exports.handler = (event, context, callback)=> {
     s3.getObject(downloadParams, (err, response)=>{
       if( err ) return reject(err);
 
-      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+      fs.writeFile(tmp+'/'+Key, response.Body, err=>
         err ? reject(err) : resolve()
       )
     })
   )).then(()=> {
     
     const proc = spawn('ffmpeg', [
-      '-i', tmp+'/input.mp4', '-vf', 'fps=1', tmp+'/out%d.png'
+      '-i', tmp+'/'+Key, '-vf', 'fps=1', tmp+'/'+KeySlug + '-out%d.png'
     ]);
 
     let err = '';
@@ -346,7 +347,7 @@ exports.handler = (event, context, callback)=> {
 
   const FROM_BUCKET = event.Records[0].s3.bucket.name;
   const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
-
+  const KeySlug = Key.replace('.mp4', '');
 
   // download the file from s3
   const downloadParams = { Bucket: FROM_BUCKET, Key };
@@ -364,7 +365,7 @@ exports.handler = (event, context, callback)=> {
     new Promise((resolve, reject)=> {
     
       const proc = spawn('ffmpeg', [
-        '-i', tmp+'/input.mp4', '-vf', 'fps=1', tmp+'/out%d.png'
+        '-i', tmp+'/'+Key, '-vf', 'fps=1', tmp+'/'+KeySlug+'-out%d.png'
       ]);
 
       let err = '';
@@ -411,7 +412,8 @@ exports.handler = (event, context, callback)=> {
         reject(err) :
         resolve(
           files.filter(file => (
-            !file.indexOf('out') &&
+            ~file.indexOf('out') &&
+            ~file.indexOf(KeySlug) &&
             file.lastIndexOf('.png') === (file.length - 4)
           ))
         )
@@ -471,7 +473,6 @@ what we'll need to do to prepare our lambda for running in the cloud is:
  - move all local-config dependent values to separate config files for cloud / local
  - only load SharedIniFileCredentials when in local mode
  - commit a .gitkeep in the tmp directory we'll use in the cloud
- - uniquify all filenames by the uploaded filename
  - package (zip using git) ffmpeg and its dependencies together with our lambda as a layer
    - https://dev.to/hmschreck/building-a-super-cheap-transcoder-using-aws-lambda-1j76
    - https://devopstar.com/2019/01/28/serverless-watermark-using-aws-lambda-layers-ffmpeg/
@@ -553,6 +554,44 @@ now when we run this in the cloud, there'll be a directory to keep temporary fil
 
 
 
+ - package (zip using git) ffmpeg and its dependencies together with our lambda as a layer
+
+https://linuxize.com/post/how-to-install-ffmpeg-on-ubuntu-18-04/
+
+`$ which ffmpeg`
+
+`$ which ffprobe`
+
+cp the two files resulting from those commands into a directory, and make a zip of them
+
+
+then, in the lambda console, navigate to the `layers` page, create a new layer
+
+upload the zip you just made
+
+copy the arn, and add it to layers
+
+
+once that's done, we'll want to test that the programs are available
+
+we can edit our lambda inline with
+
+<sub>LAMBDA</sub>
+```js
+exports.handler = (event, context) => {
+
+  const ls = require('child_process').spawn('/opt/ffmpeg/ffmpeg', ['-version']);
+    
+  ls.stdout.on('data', d=> console.log(d.toString()));
+
+  ls.on('close', code=> code ? context.fail(code) : context.succeed());     
+};
+```
+
+if everything worked, this should print out the current version of ffmpeg
+
+
+
 ### running in the cloud
 
  - upload the zip (with all dependency layers)
@@ -562,6 +601,16 @@ now when we run this in the cloud, there'll be a directory to keep temporary fil
 
 
 now that our program works locally, we want to upload it to the AWS lambda console
+
+first, we'll make a zip file, which we can upload
+
+
+ - upload the zip (with all dependency layers)
+
+
+`$ git archive -o lambda.zip`
+
+
 
 
 

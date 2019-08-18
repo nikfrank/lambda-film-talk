@@ -28,6 +28,7 @@ exports.handler = (event, context, callback)=> {
 
   const FROM_BUCKET = event.Records[0].s3.bucket.name;
   const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
+  const KeySlug = Key.replace('.mp4', '');
 
 
   // download the file from s3
@@ -46,7 +47,7 @@ exports.handler = (event, context, callback)=> {
     new Promise((resolve, reject)=> {
     
       const proc = spawn('ffmpeg', [
-        '-i', tmp+'/input.mp4', '-vf', 'fps=1', tmp+'/out%d.png'
+        '-i', tmp+'/'+Key, '-vf', 'fps=1', tmp+'/'+KeySlug+'-out%d.png'
       ]);
 
       let err = '';
@@ -64,7 +65,8 @@ exports.handler = (event, context, callback)=> {
         reject(err) :
         resolve(
           files.filter(file => (
-            !file.indexOf('out') &&
+            ~file.indexOf('out') &&
+            ~file.indexOf(KeySlug) &&
             file.lastIndexOf('.png') === (file.length - 4)
           ))
         )
