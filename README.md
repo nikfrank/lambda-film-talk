@@ -757,6 +757,12 @@ in the lambda console, set the Execution Role (pic) to the role you just made
 
 
 
+now we should see the files come out in the other bucket!
+
+
+
+
+
 
 ## cloud security
 
