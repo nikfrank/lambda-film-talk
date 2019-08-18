@@ -42,6 +42,8 @@ those stills will have to be saved to s3 when the video is uploaded (by a lmbda 
 furthermore, each of the processes will be secured by a cookie jwt (uploading video, downloading images and video) through API gateway + lambda
 
 
+(( wireframes and arch diagrams ))
+
 
 ### cloud architecture
 
@@ -49,7 +51,7 @@ furthermore, each of the processes will be secured by a cookie jwt (uploading vi
 
 
 
-## coding
+## coding ffmpeg to run locally
 
 ### ffmpeg command
 
@@ -96,10 +98,9 @@ exports.handler = (event, context, callback)=> {
   let err = '';
   proc.stderr.on('data', e=> err += e);
   
-  proc.on('close', (code)=>{
-    if( code ) context.fail(err);
-    else context.succeed();
-  });
+  proc.on('close', code=>
+    code ? context.fail(err) : context.succeed()
+  );
 };
 
 ```
@@ -162,6 +163,8 @@ when we trigger our lambda from an S3 upload event, AWS will send us the necessa
 
 <sub>./index.js</sub>
 ```js
+const AWS = require('aws-sdk');
+
 const { spawn } = require('child_process');
 const fs = require('fs');
 
@@ -183,14 +186,11 @@ exports.handler = (event, context, callback)=> {
 and we can now download the file from S3
 
 ```js
-  const tmp = './tmp';
+  const tmp = './assets';
 
   (new Promise((resolve, reject)=>
     s3.getObject(downloadParams, (err, response)=>{
-      if(err) {
-        console.error(err.code, '-', err.message);
-        return reject(err);
-      }
+      if( err ) return reject(err);
     
       fs.writeFile(tmp+'/input.mp4', response.Body, err=>
         err ? reject(err) : resolve()
@@ -204,7 +204,299 @@ for this to work though, we'll need to temporarily put our AWS API key into our 
 
 and we'll need to remember to change the `tmp` directory in the lambda runtime to '/tmp' and commit a .gitkeep
 
-...
+
+for local testing, all we need to do to get this running is to wait for the download before running the child process
+
+```js
+//...
+
+exports.handler = (event, context, callback)=> {
+
+  const FROM_BUCKET = event.Records[0].s3.bucket.name;
+  const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
+
+
+  // download the file from s3
+  const downloadParams = { Bucket: FROM_BUCKET, Key };
+
+  (new Promise((resolve, reject)=>
+    s3.getObject(downloadParams, (err, response)=>{
+      if( err ) return reject(err);
+
+      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+        err ? reject(err) : resolve()
+      )
+    })
+  )).then(()=> {
+    
+    const proc = spawn('ffmpeg', [
+      '-i', tmp+'/input.mp4', '-vf', 'fps=1', tmp+'/out%d.png'
+    ]);
+
+    let err = '';
+    proc.stderr.on('data', e=> err += e);
+    
+    proc.on('close', code=>
+      code ? context.fail(err) : context.succeed()
+    );
+  }).catch(err => context.fail(err));
+};
+```
+
+now we just need a file in the cloud to test this with!
+
+
+
+### making an s3 bucket
+
+open up the [aws console](aws.amazon.com)
+
+now we can hit create button (image of console)
+
+
+we'll fill in the form (images of form)
+
+leaving everything to default, we'll limit access to our files to only explicitly allowed requests
+
+
+once we're done, we can upload a test mp4 file (upload, uploaded images)
+
+
+
+### testing s3 locally 
+
+let's set the file we just uploaded as the test event
+
+<sub>./test.js</sub>
+```js
+const filmSplitter = require('./');
+
+filmSplitter.handler({
+  "Records":[
+    {
+      "s3": {
+        "bucket": { "name": "lambda-film-talk" },
+        "object": {
+          "key": "five.mp4"
+        }
+      }
+    }
+  ]
+}, {
+  fail: err => console.error(err),
+  succeed: ()=> console.log('success!'),
+});
+```
+
+we must remember to `$ yarn add aws-sdk` locally
+
+lambda will have this dependency available without installation, but we will need to install it locally to test.
+
+
+and we must load our credentials locally (again, lambda will have these automatically available in the cloud runtime)
+
+
+<sub>./index.js</sub>
+```js
+const AWS = require('aws-sdk');
+
+const { spawn } = require('child_process');
+const fs = require('fs');
+
+const credentials = new AWS.SharedIniFileCredentials({
+  profile: 'default'
+});
+AWS.config.credentials = credentials;
+
+AWS.config.update({
+  region:"us-east-1",
+});
+const s3 = new AWS.S3();
+
+//...
+```
+
+we'll remember to use a config flag to not do this on the cloud
+
+
+this depends on there being default AWS credentials on your dev machine
+
+usually you'll put them there by installing the aws-cli
+
+[installing the cli](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html)
+
+[configuring credentials in the cli](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html)
+
+
+now when we run our test we get...
+
+
+`success!`
+
+
+and when we look in our assets directory, we'll see the input.mp4 that has been downloaded, and the output images
+
+
+last thing before we upload to the cloud: let's upload automatically to s3
+
+
+first, we'll have to refactor our child_process to work in a Promise
+
+
+
+
+<sub>./index.js</sub>
+```js
+
+exports.handler = (event, context, callback)=> {
+
+  const FROM_BUCKET = event.Records[0].s3.bucket.name;
+  const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
+
+
+  // download the file from s3
+  const downloadParams = { Bucket: FROM_BUCKET, Key };
+
+  (new Promise((resolve, reject)=>
+    s3.getObject(downloadParams, (err, response)=>{
+      if( err ) return reject(err);
+
+      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+        err ? reject(err) : resolve()
+      )
+    })
+    
+  )).then(()=> (
+    new Promise((resolve, reject)=> {
+    
+      const proc = spawn('ffmpeg', [
+        '-i', tmp+'/input.mp4', '-vf', 'fps=1', tmp+'/out%d.png'
+      ]);
+
+      let err = '';
+      proc.stderr.on('data', e=> err += e);
+      
+      proc.on('close', code=>
+        code ? reject(err) : resolve()
+      );
+    }))
+    
+  ).then(()=> context.succeed())
+   .catch(err => context.fail(err))
+
+};
+
+```
+
+
+
+then we can chain another Promise on to upload the results to another S3 (which we need to make)
+
+```js
+
+const TO_BUCKET = 'lambda-film-talk-output';
+
+```
+
+
+first, we'll `fs.readdir` to get the list of output files
+
+
+
+<sub>./index.js</sub>
+```js
+
+exports.handler = (event, context, callback)=> {
+
+   //...
+    
+  ).then(()=> (
+    new Promise((resolve, reject)=>
+      fs.readdir(tmp, (err, files)=>
+        err ?
+        reject(err) :
+        resolve(
+          files.filter(file => (
+            !file.indexOf('out') &&
+            file.lastIndexOf('.png') === (file.length - 4)
+          ))
+        )
+      )
+    ))
+  ).then(()=> context.succeed())
+   .catch(err => context.fail(err))
+
+};
+
+```
+
+
+then we can upload them all in a `Promise.all`
+
+
+
+<sub>./index.js</sub>
+```js
+
+exports.handler = (event, context, callback)=> {
+
+   //...
+    
+  ).then(filesToUpload=> Promise.all(
+    filesToUpload.map(filename=> (
+      new Promise((resolve, reject)=>
+
+        fs.readFile(tmp + '/' + filename, (err, filedata)=> {
+          if( err ) return reject(err);
+
+          s3.putObject({
+            Bucket: TO_BUCKET,
+            Key: filename,
+            Body: filedata,
+            
+          }, (err, response)=>
+            err ? reject(err) : resolve()
+          );
+        })
+      ))
+    ))
+  ).then(()=> context.succeed())
+   .catch(err => context.fail(err))
+
+};
+
+```
+
+
+
+
+## cloud integration
+
+### running in the cloud
+
+
+now that our program works locally, we want to upload it to the AWS lambda console
+
+
+
+
+
+## cloud security
+
+
+
+
+
+
+## front end upload & dragNdrop
+
+
+
+
+
+## putting it all together
+
+
 
 
 

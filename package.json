@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/nikfrank/lambda-film-talk/issues"
   },
-  "homepage": "https://github.com/nikfrank/lambda-film-talk#readme"
+  "homepage": "https://github.com/nikfrank/lambda-film-talk#readme",
+  "dependencies": {
+    "aws-sdk": "^2.512.0"
+  }
 }

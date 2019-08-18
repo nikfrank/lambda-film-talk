@@ -4,9 +4,9 @@ filmSplitter.handler({
   "Records":[
     {
       "s3": {
-        "bucket": { "name": "some-bucket" },
+        "bucket": { "name": "lambda-film-talk" },
         "object": {
-          "key": "some-filename.mp4"
+          "key": "five.mp4"
         }
       }
     }
