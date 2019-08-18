@@ -48,7 +48,7 @@ exports.handler = (event, context, callback)=> {
   )).then(()=> (
     new Promise((resolve, reject)=> {
     
-      const proc = spawn('ffmpeg', [
+      const proc = spawn(ffmpeg, [
         '-i', tmp+'/'+Key, '-vf', 'fps=1', tmp+'/'+KeySlug+'-out%d.png'
       ]);
 

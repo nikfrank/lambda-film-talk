@@ -637,6 +637,14 @@ if( process.env.MODE === 'LOCAL' ){
 }
 
 //...
+
+
+      const proc = spawn(ffmpeg, [
+        '-i', tmp+'/'+Key, '-vf', 'fps=1', tmp+'/'+KeySlug+'-out%d.png'
+      ]);
+
+
+//...
 ```
 
 
@@ -745,7 +753,7 @@ in the lambda console, set the Execution Role (pic) to the role you just made
 
 - test by uploading some files
 
-
+... in the s3 console
 
 
 
