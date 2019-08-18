@@ -168,9 +168,6 @@ const AWS = require('aws-sdk');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-AWS.config.update({
-  region:"us-east-1",
-});
 const s3 = new AWS.S3();
 
 
@@ -308,9 +305,6 @@ const credentials = new AWS.SharedIniFileCredentials({
 });
 AWS.config.credentials = credentials;
 
-AWS.config.update({
-  region:"us-east-1",
-});
 const s3 = new AWS.S3();
 
 //...
@@ -469,10 +463,25 @@ exports.handler = (event, context, callback)=> {
 
 
 
-
 ## cloud integration
 
+
+what we'll need to do to prepare our lambda for running in the cloud is:
+
+ - move all local-config dependent values to separate config files for cloud / local
+ - only load SharedIniFileCredentials when in local mode
+ - commit a .gitkeep in the tmp directory we'll use in the cloud
+ - uniquify all filenames by the uploaded filename
+ - package (zip using git) ffmpeg and its dependencies together with our lambda as a layer
+   - https://dev.to/hmschreck/building-a-super-cheap-transcoder-using-aws-lambda-1j76
+   - https://devopstar.com/2019/01/28/serverless-watermark-using-aws-lambda-layers-ffmpeg/
+
 ### running in the cloud
+
+ - upload the zip (with all dependency layers)
+ - configure the lambda to be triggered by upload to the s3
+ - apply permissions to the lambda which will allow it to read from, write to the s3 buckets
+ - test by uploading some files
 
 
 now that our program works locally, we want to upload it to the AWS lambda console
@@ -483,19 +492,25 @@ now that our program works locally, we want to upload it to the AWS lambda conso
 
 ## cloud security
 
+ - api gateway + lambda -> jwt cookie login
+ - lambda jwt cookie authenticator
+ - loading the video / images using the cookie (html5 video tag)
+ - https://aws.amazon.com/blogs/compute/simply-serverless-using-aws-lambda-to-expose-custom-cookies-with-api-gateway/
 
 
 
 
+## front end upload
 
-## front end upload & dragNdrop
-
-
+ - s3 signed url uploads, using our jwt security from before
+ - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
 
 
 
 ## putting it all together
 
+ - drag and drop film strips
+ - one more lambda to splice film together
 
 
 
