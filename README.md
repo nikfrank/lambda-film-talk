@@ -591,6 +591,54 @@ exports.handler = (event, context) => {
 if everything worked, this should print out the current version of ffmpeg
 
 
+now we should set a config var for the location of ffmpeg on the system
+
+<sub>./config-local.json</sub>
+```js
+{
+  "tmp": "./assets",
+  "TO_BUCKET": "lambda-film-talk-output",
+  "ffmpeg": "ffmpeg"
+}
+```
+
+<sub>./config-lambda.json</sub>
+```js
+{
+  "tmp": "/tmp",
+  "TO_BUCKET": "lambda-film-talk-output",
+  "ffmpeg": "/opt/ffmpeg/ffmpeg"
+}
+```
+
+
+<sub>./index.js</sub>
+```js
+//...
+
+let tmp, TO_BUCKET, ffmpeg;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+
+  const localConfig = require('./config-local.json');
+  tmp = localConfig.tmp;
+  TO_BUCKET = localConfig.TO_BUCKET;
+  ffmpeg = localConfig.ffmpeg;
+
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  tmp = lambdaConfig.tmp;
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+  ffmpeg = lambdaConfig.ffmpeg;
+}
+
+//...
+```
+
 
 ### running in the cloud
 
@@ -608,8 +656,94 @@ first, we'll make a zip file, which we can upload
  - upload the zip (with all dependency layers)
 
 
-`$ git archive -o lambda.zip`
+`$ git archive -o lambda.zip HEAD`
 
+
+now we can upload the zip file to the lambda console
+
+
+and set a test event
+
+```js
+{
+  "Records":[
+    {
+      "s3": {
+        "bucket": { "name": "lambda-film-talk" },
+        "object": {
+          "key": "five.mp4"
+        }
+      }
+    }
+  ]
+}
+```
+
+(in the test event menu... pic)
+
+
+####
+ - configure the lambda to be triggered by upload to the s3
+
+(pics)
+
+
+
+
+now we need permissions for our lambda to read / write to the s3 buckets
+
+
+
+### permissions
+
+
+- apply permissions to the lambda which will allow it to read from, write to the s3 buckets
+
+IAM console ... roles ... create role ... lambda
+
+
+
+make a policy
+
+
+```js
+{
+    "Version": "2012-10-17",
+    "Statement": [
+{
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketLocation"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "s3:*",
+            "Resource": [
+                "arn:aws:s3:::lambda-film-talk",
+                "arn:aws:s3:::lambda-film-talk/*",
+                "arn:aws:s3:::lambda-film-talk-output",
+                "arn:aws:s3:::lambda-film-talk-output/*"
+            ]
+        }
+    ]
+}
+```
+
+and select it for your role
+
+
+in the lambda console, set the Execution Role (pic) to the role you just made
+
+
+
+
+
+
+
+- test by uploading some files
 
 
 

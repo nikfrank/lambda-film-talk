@@ -3,7 +3,7 @@ const AWS = require('aws-sdk');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-let tmp, TO_BUCKET;
+let tmp, TO_BUCKET, ffmpeg;
 
 if( process.env.MODE === 'LOCAL' ){
   const credentials = new AWS.SharedIniFileCredentials({
@@ -14,11 +14,13 @@ if( process.env.MODE === 'LOCAL' ){
   const localConfig = require('./config-local.json');
   tmp = localConfig.tmp;
   TO_BUCKET = localConfig.TO_BUCKET;
+  ffmpeg = localConfig.ffmpeg;
 
 } else {
   const lambdaConfig = require('./config-lambda.json');
   tmp = lambdaConfig.tmp;
   TO_BUCKET = lambdaConfig.TO_BUCKET;
+  ffmpeg = lambdaConfig.ffmpeg;
 }
 
 const s3 = new AWS.S3();
@@ -38,7 +40,7 @@ exports.handler = (event, context, callback)=> {
     s3.getObject(downloadParams, (err, response)=>{
       if( err ) return reject(err);
       
-      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+      fs.writeFile(tmp+'/'+Key, response.Body, err=>
         err ? reject(err) : resolve()
       )
     })
