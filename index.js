@@ -3,16 +3,25 @@ const AWS = require('aws-sdk');
 const { spawn } = require('child_process');
 const fs = require('fs');
 
-const credentials = new AWS.SharedIniFileCredentials({
-  profile: 'default'
-});
-AWS.config.credentials = credentials;
+let tmp, TO_BUCKET;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+
+  const localConfig = require('./config-local.json');
+  tmp = localConfig.tmp;
+  TO_BUCKET = localConfig.TO_BUCKET;
+
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  tmp = lambdaConfig.tmp;
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+}
 
 const s3 = new AWS.S3();
-
-
-const tmp = './assets';
-const TO_BUCKET = 'lambda-film-talk-output';
 
 
 exports.handler = (event, context, callback)=> {

@@ -1,0 +1,4 @@
+{
+  "tmp": "/tmp",
+  "TO_BUCKET": "lambda-film-talk-output"
+}

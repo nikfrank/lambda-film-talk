@@ -4,7 +4,7 @@
   "description": "welcome to everyone from JSil - this is the code that goes with the talk",
   "main": "index.js",
   "scripts": {
-    "test": "node test.js"
+    "test": "MODE=LOCAL node test.js"
   },
   "repository": {
     "type": "git",

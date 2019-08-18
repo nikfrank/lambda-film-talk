@@ -476,6 +476,83 @@ what we'll need to do to prepare our lambda for running in the cloud is:
    - https://dev.to/hmschreck/building-a-super-cheap-transcoder-using-aws-lambda-1j76
    - https://devopstar.com/2019/01/28/serverless-watermark-using-aws-lambda-layers-ffmpeg/
 
+
+
+ - move all local-config dependent values to separate config files for cloud / local
+ - only load SharedIniFileCredentials when in local mode
+ 
+`$ touch config-local.json`
+
+`$ touch config-lambda.json`
+
+<sub>./package.json</sub>
+```js
+//...
+
+  "scripts": {
+    "test": "MODE=LOCAL node test.js"
+  },
+
+//...
+```
+
+<sub>./config-lambda.json</sub>
+```js
+{
+  "tmp": "/tmp",
+  "TO_BUCKET": "lambda-film-talk-output"
+}
+```
+
+<sub>./config-local.json</sub>
+```js
+{
+  "tmp": "./assets",
+  "TO_BUCKET": "lambda-film-talk-output"
+}
+```
+
+
+<sub>./index.js</sub>
+```js
+//...
+
+let tmp, TO_BUCKET;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+
+  const localConfig = require('./config-local.json');
+  tmp = localConfig.tmp;
+  TO_BUCKET = localConfig.TO_BUCKET;
+
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  tmp = lambdaConfig.tmp;
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+}
+
+//...
+```
+
+now we can have whatever configuration different locally and in the cloud
+
+
+- commit a .gitkeep in the tmp directory we'll use in the cloud
+
+`$ mkdir tmp`
+
+`$ touch tmp/.gitkeep`
+
+`$ git add tmp/.gitkeep`
+
+now when we run this in the cloud, there'll be a directory to keep temporary files
+
+
+
 ### running in the cloud
 
  - upload the zip (with all dependency layers)
@@ -504,13 +581,14 @@ now that our program works locally, we want to upload it to the AWS lambda conso
 
  - s3 signed url uploads, using our jwt security from before
  - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
-
+ - futch (upload progress)
 
 
 ## putting it all together
 
  - drag and drop film strips
  - one more lambda to splice film together
+ - https://github.com/atlassian/react-beautiful-dnd
 
 
 
