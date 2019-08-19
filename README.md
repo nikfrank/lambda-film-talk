@@ -1093,7 +1093,7 @@ now that we have a lambda cookie jwt auth system, let's make our assets (images 
 
 
 
-(Actions)-> create resource, (static, static, enable CORS)
+(Actions)-> create resource, (files, files, enable CORS)
 
 (Actions)-> create method... GET... use Lambda Proxy integration
 
@@ -1157,15 +1157,33 @@ it may be useful to use a cookie extension for chrome to achieve this (I have pr
 
  - s3 signed url uploads, using our jwt security from before
  - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
- - futch (upload progress)
+
+
+
+#### s3 signed url uploads, using our jwt security from before
+
+
+
+
+
+- lambda sed (lambda-film-talk-upload -> lambda-film-talk)
+
+
 
 
 ## putting it all together
 
+ - futch (upload progress)
  - drag and drop film strips
  - one more lambda to splice film together
  - https://github.com/atlassian/react-beautiful-dnd
 
+
+
+
+### deployment
+
+by deploying the site as a {proxy+} on apigateway, our cookie will be valid across all requests (login, load files)
 
 
 
