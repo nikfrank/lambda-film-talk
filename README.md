@@ -1093,10 +1093,60 @@ now that we have a lambda cookie jwt auth system, let's make our assets (images 
 
 
 
+(Actions)-> create resource, (static, static, enable CORS)
+
+(Actions)-> create method... GET... use Lambda Proxy integration
+
+... over in the lambda console, let's make another lambda to download the files ...
+
+
+```js
+const AWS = require('aws-sdk');
+
+const s3 = new AWS.S3();
+
+exports.handler = (event, context) => {
+    const params = {
+      "Bucket": "lambda-film-talk-output",
+      "Key": event.queryStringParameters.key  
+    };
+    
+    s3.getObject(params, (err, data)=>{
+        if(err) {
+           context.done(err, null);
+        } else {
+            const response = {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "image/png"
+                },
+                "body": data.Body.toString('base64'),
+                "isBase64Encoded": true
+            };
+    
+            context.done(null, response);
+        }
+    });
+    
+};
+```
+
+in method request we can set the authorizer as before
+
+
+and in (Settings)-> Binary Media Types, add */*
 
 
 
+---
 
+
+now when we make requests (from the browser) with a cookie, we'll receive the image / video
+
+without, we will receive an unauthorized message.
+
+
+it may be useful to use a cookie extension for chrome to achieve this (I have problems viewing images in POSTMAN)
 
 
 
