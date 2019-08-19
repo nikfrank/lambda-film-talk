@@ -576,7 +576,7 @@ once that's done, we'll want to test that the programs are available
 
 we can edit our lambda inline with
 
-<sub>LAMBDA</sub>
+<sub>LAMBDA: film-stills</sub>
 ```js
 exports.handler = (event, context) => {
 
@@ -705,7 +705,7 @@ now we need permissions for our lambda to read / write to the s3 buckets
 ### permissions
 
 
-- apply permissions to the lambda which will allow it to read from, write to the s3 buckets
+#### apply permissions to the lambda which will allow it to read from, write to the s3 buckets
 
 IAM console ... roles ... create role ... lambda
 
@@ -751,7 +751,7 @@ in the lambda console, set the Execution Role (pic) to the role you just made
 
 
 
-- test by uploading some files
+#### test by uploading some files
 
 ... in the s3 console
 
@@ -768,8 +768,337 @@ now we should see the files come out in the other bucket!
 
  - api gateway + lambda -> jwt cookie login
  - lambda jwt cookie authenticator
- - loading the video / images using the cookie (html5 video tag)
+ - loading the video / images using the cookie (html5 video tag / img tag)
  - https://aws.amazon.com/blogs/compute/simply-serverless-using-aws-lambda-to-expose-custom-cookies-with-api-gateway/
+
+
+
+#### api gateway + lambda -> jwt cookie login
+
+now that our videos get processed automatically, we want to let our users do the uploading!
+
+
+
+to accomplish this, we will use API gateway
+
+https://us-west-2.console.aws.amazon.com/apigateway/home
+
+we'll hit 'create api' --> REST + name
+
+
+(Actions) -> create resource
+
+login, login, enable CORS
+
+
+(Actions) -> create method, POST
+
+lambda + lambda proxy
+
+
+---> here we need a login lambda!
+
+https://us-west-2.console.aws.amazon.com/lambda
+
+open up a new tab to make a lambda, we can call it "film-login"
+
+we're not focusing too much on how to build a login system,
+
+so for now, all we'll do is use node's `crypto` package to make a passwordHash to test
+
+(normally we'd test this against a database, but this isn't a talk about how to build a user management system!)
+
+
+<sub>LAMBDA: film-login<sub>
+```js
+exports.handler = (event, context) => {
+    const expectedHash = '09af4adb971614bcc054eea17fbcfbb5a6f0d95926c99608e5b60c17c426a6c3d448b368315d55d85d9e171c6da6670fe34caf8a920c41e3db08d346f82456f0'; // don't do this
+    
+    const passwordHash = require('crypto').pbkdf2Sync(JSON.parse(event.body).password, 'secret code', 100, 64, 'sha512').toString('hex');
+                                 
+                             
+    if( passwordHash === expectedHash ){
+        const response = {
+            statusCode: 200,
+            body: JSON.stringify('Hello from Lambda!'),
+            headers: {'Set-Cookie': 'token=some-token' }
+        };
+        
+        context.done(null, response);
+    } else {
+        const response = {
+            statusCode: 401,
+            headers: {'Set-Cookie' : 'token=null'}
+        };
+        context.done(null, response);
+    }
+};
+
+```
+
+
+back in API Gateway,
+
+type in the name of the lambda and hit ok to set this lambda on this API (POST /login)
+
+
+in the Resources -> /login -> POST -> Method Response we need to add a Cookie header
+
+<img src='http://awscomputeblogmedia.s3.amazonaws.com/apigw_cookies_method_response.png' />
+
+
+
+
+now we want to deploy the api to test it
+
+(Actions)-> Deploy API -> New stage (test, test, test)-> Deploy
+
+
+to get the url of this endpoint, (Stages)-> test -> /login -> POST ... "invoke URL"
+
+
+now from POSTMAN, wee can make a POST request to the endpoint we just copied
+
+the password for the hash in the example code here is (of course) "guest", so our body should be
+
+```js
+{
+	"password": "guest"
+}
+```
+
+we should see a 200 and a cookie come back when we have the right password
+
+when we test our API with the wrong password, we should see our token Cookie set back to null with a 401 response.
+
+now, with our cookie, we're ready to authenticate future requests
+
+
+#### actual jwt
+
+earlier, we sent back a static cookie (`token=some-token`), which isn't very secure!
+
+let's zip our lambda with npmjs.org/package/jsonwebtoken to be able to really prevent fraud
+
+(lambda won't install your npm modules like heroku does. we need to zip everything to get it to work)
+
+
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-login`
+
+`$ cd lambda-film-login`
+
+`$ touch index.js`
+
+`$ npm init -y`
+
+`$ git init`
+
+`$ npm i jsonwebtoken`
+
+<sub>./index.js</sub>
+```js
+const jwt = require('jsonwebtoken');
+
+exports.handler = (event, context) => {
+  const expectedHash = '09af4adb971614bcc054eea17fbcfbb5a6f0d95926c99608e5b60c17c426a6c3d448b368315d55d85d9e171c6da6670fe34caf8a920c41e3db08d346f82456f0'; // don't do this
+  
+  const passwordHash = require('crypto').pbkdf2Sync(JSON.parse(event.body).password, 'secret code', 100, 64, 'sha512').toString('hex');
+  
+  
+  if( passwordHash === expectedHash ){
+
+    jwt.sign({ username: 'nik' }, 'jwt secret code', (err, token)=>{
+      const response = {
+        statusCode: 200,
+        body: JSON.stringify('Hello from Lambda!'),
+        headers: {'Set-Cookie': 'token='+token }
+      };
+      
+      context.done(null, response);
+    });
+    
+  } else {
+    const response = {
+      statusCode: 401,
+      headers: {'Set-Cookie' : 'token=null'}
+    };
+    context.done(null, response);
+  }
+};
+```
+
+now after we check our password, we create a jwt, which we will respond with in the cookie
+
+
+to deploy this new code, we'll need to generate a zip file (which I do with `git`)
+
+`$ git add .`
+
+`$ git commit -am "init lambda-film-login with jwt"`
+
+push to github probably
+
+`$ git archive -o lambda.zip HEAD`
+
+now we can upload the zip file to the lambda console
+
+
+(pics)
+
+
+
+I usually delete the zip file (to avoid tracking it) after I've uploaded it
+
+
+now when we do our test from POSTMAN, we should see the jwt come back in the cookie!
+
+this is (besides for the password and jwt secret key being hardcoded) very much a production pattern.
+
+
+
+
+
+#### lambda jwt cookie authenticator
+
+now that we can make requests from POSTMAN with our cookie, we should make a route protected with an authorizer
+
+in lambda, create a new function named film-authorizer
+
+and same as last time
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-authorizer`
+
+`$ cd lambda-film-autorizer`
+
+`$ touch index.js`
+
+`$ npm init -y`
+
+`$ git init`
+
+`$ npm i jsonwebtoken`
+
+
+now we'll write a lambda that checks the jwt
+
+
+<sub>./index.js</sub>
+```js
+const jwt = require('jsonwebtoken');
+
+exports.handler =  function(event, context, callback) {
+  const cookie = event.authorizationToken;
+  
+  const token = cookie.match(/(;|^)\s*token=[a-zA-Z0-9_\-\.]+(;|$)/)[0].split('token=')[1];
+  
+  jwt.verify(token, 'jwt secret code', (err, decoded)=>{
+    if( err ) return callback(null, generatePolicy('user', 'Deny', event.methodArn));
+    else {
+      callback(null, generatePolicy('user', 'Allow', event.methodArn));
+    }
+  });
+};
+
+var generatePolicy = function(principalId, effect, resource) {
+  var authResponse = {};
+  
+  authResponse.principalId = principalId;
+  if (effect && resource) {
+    var policyDocument = {};
+    policyDocument.Version = '2012-10-17'; 
+    policyDocument.Statement = [];
+    var statementOne = {};
+    statementOne.Action = 'execute-api:Invoke'; 
+    statementOne.Effect = effect;
+    statementOne.Resource = resource;
+    policyDocument.Statement[0] = statementOne;
+    authResponse.policyDocument = policyDocument;
+  }
+  
+  return authResponse;
+}
+```
+
+note we've used the same hard-coded jwt secret code here.
+
+
+`$ git add .`
+
+`$ git commit -am "init lambda-film-authorizer with jwt"`
+
+push to github probably
+
+`$ git archive -o lambda.zip HEAD`
+
+now we can upload the zip to the lambda console as before.
+
+
+
+
+in API Gateway ... (Authorizers)-> Create New Authorizer
+
+(pic)
+
+
+and apply it to a new route (( here we'll make the lambda that we'll program later to sign uploads to s3 ))
+
+(Resources)-> (Actions)-> Create Resource... (s3-upload, s3-upload, enable CORS)... Create Resource
+
+(Actions)-> Create Method -> POST
+
+Enable Proxy integration
+
+... in lambda, we'll make a new function named film-s3-upload ...
+
+we can leave that lambda as default until the next step when we program it to sign uploads
+
+
+... back in API Gateway ...
+
+set the lambda function on the method to film-s3-upload (which we just made)
+
+(Resources)-> /s3-upload -> POST ...-> Method Request
+
+Authorization ---> film-authorizer (hit the little check mark)
+
+
+
+let's deploy the API
+
+(Actions)-> Deploy API
+
+
+now we're ready to test our cookie authorizer
+
+
+NOTE --- if you make a bug or mistake in the authorizer and re-upload it after deploying the API, you'll have to re-deploy the API in order to use the new copy of the lambda!
+
+
+
+now, when we make a request to the s3-upload endpoint with the Cookie from a successful login, we should see a 200 response
+
+when we make a request without a valid cookie, we should see a 403
+
+
+
+
+#### loading the video / images using the cookie (html5 video tag / img tag)
+
+now that we have a lambda cookie jwt auth system, let's make our assets (images & video) available by writing another lambda to load them
+
+
+
+
+
+
+
+
+
 
 
 
