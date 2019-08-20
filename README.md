@@ -1148,7 +1148,7 @@ without, we will receive an unauthorized message.
 
 it may be useful to use a cookie extension for chrome to achieve this (I have problems viewing images in POSTMAN)
 
-
+certainly, it helped me while I was debugging my code & cloud architecture.
 
 
 
@@ -1156,24 +1156,301 @@ it may be useful to use a cookie extension for chrome to achieve this (I have pr
 ## front end upload
 
  - s3 signed url uploads, using our jwt security from before
+ - futch (upload progress)
  - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
-
+ - deploying the s3 signer lambda
 
 
 #### s3 signed url uploads, using our jwt security from before
 
+We want to allow our users to upload video files to be able to edit (that's the whole point of this workshop!)
+
+Amazon S3 is more efficient to upload the files to directly (rather than streaming them through a costly lambda)
+
+But we need to use API Gateway & Lambda Authorizer to secure our upload...
+
+
+So AWS has a solution just for us! We'll write a lambda (of course) which makes a pre-signed S3 upload URL
+
+
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-s3-signer`
+
+`$ cd lambda-film-s3-signer`
+
+`$ git init`
+
+`$ npm init -y`
+
+`$ npm i aws-sdk`
+
+`$ touch index.js`
+
+`$ touch test.js`
+
+`$ touch config-local.json`
+
+`$ touch config-lambda.json`
+
+
+LAMBDA: film-s3-signer
+<sub>./index.js</sub>
+```js
+const AWS = require('aws-sdk');
+
+let TO_BUCKET;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+  AWS.config.region = 'us-west-2';
+  
+  const localConfig = require('./config-local.json');
+  TO_BUCKET = localConfig.TO_BUCKET;
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+}
+
+const s3 = new AWS.S3();
+
+exports.handler = (event, context) => 
+  s3.getSignedUrl('putObject', {
+    Bucket: 'lambda-film-talk-upload',
+    Key: event.filename,
+    ContentType: 'multipart/form-data',
+    Expires: 300
+  }, (err, url)=>
+    (err)? context.fail(err): context.succeed(url)
+  );
+
+```
+
+NOTE:: the ContentType is set to 'multipart/form-data' because that's the kind of file upload we'll do
 
 
 
 
-- lambda sed (lambda-film-talk-upload -> lambda-film-talk)
+<sub>./config-local.json</sub>
+```js
+{
+  "TO_BUCKET": "lambda-film-talk-upload"
+}
+```
 
+<sub>./config-lambda.json</sub>
+```js
+{
+  "TO_BUCKET": "lambda-film-talk-upload"
+}
+```
+
+you may notice that these are the same so far. Mostly it's good practice to keep our lambdas consistent in file organization.
+
+
+<sub>./package.json</sub>
+```js
+//...
+
+  "scripts": {
+    "test": "MODE=LOCAL node test.js"
+  },
+
+//...
+```
+
+
+<sub>./test.js</sub>
+```js
+const uploadSigner = require('./');
+
+uploadSigner.handler({
+  filename: 'some-video.mp4'
+}, {
+  fail: err => console.error(err),
+  succeed: url=> console.log('success!', url),
+});
+```
+
+
+now we can test it!
+
+`$ npm test`
+
+
+
+now we should go make that S3 Bucket and test uploading something to it.
+
+we'll also need to set the CORS policy of the bucket to be able to test the uploads from our local env
+
+
+
+
+### futch (upload progress)
+ 
+let's start by creating a react app (finally!)
+
+
+`$ cd ~/code`
+
+`$ npx create-react-app lambda-film-studio`
+
+<sub>~/code/lambda-film-studio/src/App.js</sub>
+```js
+import React, { useState } from 'react';
+import './App.css';
+
+function App() {
+  const [ isLoggedIn, setIsLoggedIn ] = useState(false);
+  const [ password, setPassword ] = useState('');
+
+  const login = ()=> Promise.resolve().then(()=> setIsLoggedIn( true ));
+  
+  return (
+    <div className="App">
+      <header className="App-header">
+        { !isLoggedIn ? (
+            <>
+              <label>
+                What's the password?
+                <input onChange={e=> setPassword(e.target.value)} value={password} type='password'/>
+              </label>
+              <button onClick={login}>Log in</button>
+            </>
+        ): (
+            <div>Logged In</div>
+        )}
+      </header>
+    </div>
+  );
+}
+
+export default App;
+```
+
+<sub>./src/App.css</sub>
+```css
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+
+label {
+  display: flex;
+  flex-direction: column;
+}
+
+label input {
+  margin: 10px;
+  font-size: 2rem;
+  border-radius: 5px;
+}
+
+button {
+  margin: 30px;
+  padding: 10px;
+  border-radius: 5px;
+  outline: none;
+}
+```
+
+for now, we'll fake the log in and use a url from our test environment
+
+
+let's use a common fetch-uploadProgress shim called futch (from [this comment](https://github.com/github/fetch/issues/89#issuecomment-256610849))
+
+`$ touch src/futch.js`
+
+<sub>./src/futch.js</sub>
+```js
+export const futch = (url, opts = {}, onProgress) => {
+  return new Promise((res, rej) => {
+    var xhr = new XMLHttpRequest();
+    xhr.open(opts.method || "get", url);
+    for (var k in opts.headers || {}) xhr.setRequestHeader(k, opts.headers[k]);
+    xhr.onload = e => res(e.target);
+    xhr.onerror = rej;
+    if (xhr.upload && onProgress) xhr.upload.onprogress = onProgress;
+    xhr.send(opts.body);
+  });
+};
+```
+
+which we'll use like so
+
+<sub>./src/App.js</sub>
+```js
+//...
+
+import { futch } from './futch';
+
+const url = 'url from s3 signer test';
+
+//...
+
+
+  const upload = ()=>{
+    const body = new FormData();
+    body.append(
+      'file',
+      document.querySelector('input[type=file]').files[0]
+    );
+
+    futch(url, {
+      method: 'PUT',
+      body,
+      headers: { "Content-Type": "multipart/form-data" },
+      
+    }, e=> {
+      console.log('uploaded', e.loaded / e.total, '%');
+      
+    }).then(res=> console.log('upload done'))
+     .catch(err=> console.log('upload failed with', err));
+  };
+
+
+//...
+
+            <div className='logged-in'>
+              <input type='file'/>
+              <button onClick={upload}>
+                Upload
+              </button>
+            </div>
+
+//...
+```
+
+
+now we should see our file uploaded to the bucket
+
+if you're having trouble with "signature match" failures, make sure the filename you're trying to upload is the same as that listed in <sub>./test.js</sub>
+
+
+
+
+ - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
+ - deploying the s3 signer lambda
 
 
 
 ## putting it all together
 
- - futch (upload progress)
  - drag and drop film strips
  - one more lambda to splice film together
  - https://github.com/atlassian/react-beautiful-dnd
@@ -1181,7 +1458,18 @@ it may be useful to use a cookie extension for chrome to achieve this (I have pr
 
 
 
-### deployment
+### Login & deployment
+
+
+#### login
+
+now let's integrate our `login` function to our API Gateway
+
+(( this won't work in local testing due to CORS, so we will see it work in deployment ))
+
+
+
+#### deployment of our create-react-app to lambda + api gateway
 
 by deploying the site as a {proxy+} on apigateway, our cookie will be valid across all requests (login, load files)
 
