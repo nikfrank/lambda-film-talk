@@ -1444,8 +1444,279 @@ if you're having trouble with "signature match" failures, make sure the filename
 
 
 
- - lambda sed (lambda-film-talk-upload -> lambda-film-talk)
- - deploying the s3 signer lambda
+#### lambda sed (lambda-film-talk-upload -> lambda-film-talk)
+
+When I tested this, I uploaded a `package.json` file from my local project, and when I downloaded it from the S3, I found that there was a bunch of `multipart/form-data` chunk formatting in the file
+
+
+<sub>package.json in s3</sub>
+```js
+------WebKitFormBoundaryV8LnEBbs2iHxWLYB
+Content-Disposition: form-data; name="file"; filename="package.json"
+Content-Type: application/json
+
+{
+  "name": "film-talk",
+  //...
+}
+
+------WebKitFormBoundaryV8LnEBbs2iHxWLYB--
+```
+
+
+which we'll definitely need to get rid of on video files if we want them to work with ffmpeg
+
+
+my favourite way (and probably the fastest runtime) to cut lines out of a file is using `sed`
+
+if you've never used `sed`, it's probably because it was written before you were born!
+
+
+the command we'll want to run in a lambda is
+
+`$ sed -i '1,4d;$d' FILENAME`
+
+which will delete the first four lines and last line of the file (here FILENAME)
+
+
+let's make a new lambda to do our file trimming
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-talk-trimmer`
+
+`$ cd lambda-film-talk-trimmer`
+
+`$ git init`
+
+`$ npm init -y`
+
+`$ npm i aws-sdk`
+
+`$ touch config-local.json config-lambda.json test.js index.js`
+
+`$ mkdir tmp`
+
+`$ touch tmp/.gitkeep`
+
+
+
+<sub>./index.js</sub>
+```js
+const AWS = require('aws-sdk');
+const fs = require('fs')
+const { exec } = require('child_process');
+
+
+let TO_BUCKET, tmp;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+  AWS.config.region = 'us-west-2';
+  
+  const localConfig = require('./config-local.json');
+  tmp = localConfig.tmp;
+  TO_BUCKET = localConfig.TO_BUCKET;
+
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  tmp = lambdaConfig.tmp;
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+}
+
+const s3 = new AWS.S3();
+
+exports.handler = (event, context) => {
+  const FROM_BUCKET = event.Records[0].s3.bucket.name;
+  const Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, " "));
+
+  const downloadParams = { Bucket: FROM_BUCKET, Key };
+
+  
+  // download file from s3
+  (new Promise((resolve, reject)=>
+    s3.getObject(downloadParams, (err, response)=>{
+      if( err ) return reject(err);
+      
+      fs.writeFile(tmp+'/input.mp4', response.Body, err=>
+        err ? console.log('err',err)||reject(err) : resolve()
+      )
+    })
+  )).then(()=>
+    (new Promise((resolve, reject)=>
+      exec('sed -i \'1,4d;$d\' '+tmp+'/input.mp4')
+        .on('close', code=> (code ? reject(code) : resolve()))
+    ))
+  ).then(()=>
+    (new Promise((resolve, reject)=>
+      fs.readFile(tmp+'/input.mp4', (err, filedata)=> {
+        if( err ) return reject(err); 
+
+        s3.putObject({
+          Bucket: TO_BUCKET,
+          Key: Key,
+          Body: filedata,
+          
+        }, (err, response) => {
+          console.log(err);
+          if( err ) return reject(err);
+
+          resolve();
+        });
+      })
+    ))
+  )
+  .then(()=> context.succeed())
+  .catch(err=> context.fail(err))
+}
+```
+
+<sub>./test.js</sub>
+```js
+const fileTrimmer = require('./');
+
+fileTrimmer.handler({
+  "Records":[
+    {
+      "s3": {
+        "bucket": { "name": "lambda-film-talk-upload" },
+        "object": {
+          "key": "five.mp4"
+        }
+      }
+    }
+  ]
+
+}, {
+  fail: err => console.error(err),
+  succeed: url=> console.log('success!', url),
+});
+
+```
+
+<sub>./config-local.json</sub>
+```js
+{
+  "tmp": "./tmp",
+  "TO_BUCKET": "lambda-film-talk"
+}
+```
+
+<sub>./config-lambda.json</sub>
+```js
+{
+  "tmp": "/tmp",
+  "TO_BUCKET": "lambda-film-talk"
+}
+```
+
+
+<sub>./package.json</sub>
+```js
+//...
+
+  "scripts": {
+    "test": "MODE=LOCAL node test.js"
+  },
+
+//...
+```
+
+to test this, we'll need to upload a video file to our upload bucket through the front end
+
+
+then we can test this locally now with
+
+
+`$ npm test`
+
+
+
+#### deploying the s3 signer lambda
+
+
+we'll need to make sure to give permission to the lambda to PUT files into the S3 Bucket
+
+in the [iam console](https://console.aws.amazon.com/iam/home#/policies) let's make a new policy
+
+```js
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ListObjectsInBucket",
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": ["arn:aws:s3:::lambda-film-talk-upload/*"]
+        },
+        {
+            "Sid": "AllObjectActions",
+            "Effect": "Allow",
+            "Action": "s3:PutObject",
+            "Resource": ["arn:aws:s3:::lambda-film-talk/*"]
+        }
+    ]
+}
+```
+
+
+let's hit (pic) 'View Role on IAM console'
+
+then 'Attach Policy'
+
+and choose the policy you just made
+
+
+
+now we can configure it to be triggered on uploads to the upload bucket
+
+select new trigger, S3, your upload bucket, keep the "all new object event" setting which is default
+
+
+
+
+finally in order to run `sed` in a lambda, we'll have to make a layer for it with `sed`
+
+
+`$ cd ~/code`
+
+`$ mkdir sed-lambda-layer`
+
+`$ cd sed-lambda-layer`
+
+`$ git init`
+
+`$ which sed`
+
+using the output from `which`, for me /bin/sed
+
+`$ cp /bin/sed ./`
+
+`$ git add sed`
+
+`$ git commit -m sed`
+
+`$ git archive -o sed.zip HEAD`
+
+
+now we can go to the [layers console](https://us-west-2.console.aws.amazon.com/lambda/home?region=us-west-2#/layers)
+
+and upload our zip
+
+
+which we'll now be able to select for our lambda
+
+
+
+
+when this lambda PUTs the file into the lambda-film-talk bucket, the lambda we built first (cutting still images) will also run!
+
+
+
+very nice!
 
 
 
