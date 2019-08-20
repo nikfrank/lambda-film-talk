@@ -1723,8 +1723,157 @@ very nice!
 ## putting it all together
 
  - drag and drop film strips
+ - deploying our frontend in lambda
  - one more lambda to splice film together
  - https://github.com/atlassian/react-beautiful-dnd
+
+
+### drag and drop film strips
+
+to display our film cuts (which we'll be splicing together) we need to load the list of files in the S3
+
+first, we'll build the lambda & test it in POSTMAN
+
+then we'll make a mock network layer for our test application (which can't login because of the CORS issue)
+
+lastly, we'll add login to the app, make a request to the real API endpoint, and deploy our app on lambda
+
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-talk-list-bucket`
+
+`$ cd lambda-film-talk-list-bucket`
+
+`$ git init`
+
+`$ npm init -y`
+
+`$ npm i aws-sdk`
+
+`$ touch index.js test.js config-local.json config-lambda.json`
+
+<sub>./index.js</sub>
+```js
+
+```
+
+<sub>./test.js</sub>
+```js
+const bucketLister = require('./');
+
+bucketLister.handler({}, {
+  fail: err => console.error(err),
+  succeed: url=> console.log('success!', url),
+});
+```
+
+<sub>./config-local.json</sub>
+```js
+{
+  "BUCKET": "lambda-film-talk-output"
+}
+```
+
+<sub>./config-lambda.json</sub>
+```js
+{
+  "BUCKET": "lambda-film-talk-output"
+}
+```
+
+<sub>./package.json</sub>
+```js
+//...
+
+  "scripts": {
+    "test": "MODE=LOCAL node test.js"
+  },
+
+//...
+```
+
+now we need to grant the lambda permission to read the contents of the bucket
+
+we can (again) in the [iam console](https://console.aws.amazon.com/iam/home#/policies) make a new policy
+
+```js
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ListObjectsInBucket",
+            "Effect": "Allow",
+            "Action": ["s3:ListObjects"],
+            "Resource": ["arn:aws:s3:::lambda-film-talk-output"]
+        }
+    ]
+}
+```
+
+
+hit (pic) 'View Role on IAM console'
+
+then 'Attach Policy'
+
+and choose the policy you just made
+
+
+
+
+
+lastly we'll add a route to API Gateway which calls this lambda
+
+(Actions)-> Create Resource ... film-list
+
+(Actions)-> Create Method ... Get ... lambda proxy, selecting the lambda we just made
+
+
+(Actions)-> Deploy API
+
+
+
+now we should test our API from POSTMAN, and grab the output
+
+we should see something like
+
+
+```js
+{
+  //...
+}
+```
+
+so now in our front end (lambda-film-studio) we can make a mock network handler with some local images
+
+
+
+<sub>~/code/lambda-film-studio</sub>
+```js
+//...
+```
+
+
+
+and load the contents to render when our App mounts
+
+```js
+//...
+```
+
+
+now the fun part! we get to style the stills into film strips!
+
+
+<sub>./src/App.css</sub>
+```css
+//...
+```
+
+
+(next ... drag and drop)
+
+
 
 
 
