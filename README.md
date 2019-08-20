@@ -1755,7 +1755,36 @@ lastly, we'll add login to the app, make a request to the real API endpoint, and
 
 <sub>./index.js</sub>
 ```js
+const AWS = require('aws-sdk');
 
+let TO_BUCKET;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+  AWS.config.region = 'us-west-2';
+  
+  const localConfig = require('./config-local.json');
+  TO_BUCKET = localConfig.TO_BUCKET;
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+}
+
+const s3 = new AWS.S3();
+
+exports.handler = (event, context)=>
+  s3.listObjectsV2({
+    Bucket: 'lambda-film-talk-output'
+  }, (err, contents)=>{
+    err ? context.fail(err) : context.succeed({
+      statusCode: 200,
+      body: JSON.stringify(contents),
+      headers: { 'Content-Type': 'application/json' },
+    })
+  });
 ```
 
 <sub>./test.js</sub>
@@ -1764,7 +1793,7 @@ const bucketLister = require('./');
 
 bucketLister.handler({}, {
   fail: err => console.error(err),
-  succeed: url=> console.log('success!', url),
+  succeed: items=> console.log('success!', items),
 });
 ```
 
@@ -1793,6 +1822,17 @@ bucketLister.handler({}, {
 //...
 ```
 
+we can test this on the shell again with `$ npm test`
+
+
+and should see the output logged out.
+
+
+
+let's make a lambda in the console
+
+we can zip and upload our code the same way as last time (`git commit`, `git archive`)
+
 now we need to grant the lambda permission to read the contents of the bucket
 
 we can (again) in the [iam console](https://console.aws.amazon.com/iam/home#/policies) make a new policy
@@ -1804,7 +1844,7 @@ we can (again) in the [iam console](https://console.aws.amazon.com/iam/home#/pol
         {
             "Sid": "ListObjectsInBucket",
             "Effect": "Allow",
-            "Action": ["s3:ListObjects"],
+            "Action": ["s3:ListBucket"],
             "Resource": ["arn:aws:s3:::lambda-film-talk-output"]
         }
     ]
@@ -1828,6 +1868,8 @@ lastly we'll add a route to API Gateway which calls this lambda
 
 (Actions)-> Create Method ... Get ... lambda proxy, selecting the lambda we just made
 
+make sure to apply the authorizer in the Method Request sub-page
+
 
 (Actions)-> Deploy API
 
@@ -1840,7 +1882,22 @@ we should see something like
 
 ```js
 {
-  //...
+  IsTruncated: false,
+  Contents: [
+    {
+      Key: "five-out1.png",
+      LastModified: "2019-08-20T19:21:25.000Z",
+      ETag: "2c8eae17e9f01eb12e1b4734c13b0440",
+      Size: 693130,
+      StorageClass: "STANDARD"
+    },
+    //...
+  ],
+  Name: "lambda-film-talk-output",
+  Prefix: "",
+  MaxKeys: 1000,
+  CommonPrefixes: [ ],
+  KeyCount: 18
 }
 ```
 
