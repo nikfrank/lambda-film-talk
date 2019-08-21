@@ -1015,7 +1015,7 @@ var generatePolicy = function(principalId, effect, resource) {
     var statementOne = {};
     statementOne.Action = 'execute-api:Invoke'; 
     statementOne.Effect = effect;
-    statementOne.Resource = resource;
+    statementOne.Resource = '*';
     policyDocument.Statement[0] = statementOne;
     authResponse.policyDocument = policyDocument;
   }
@@ -1937,7 +1937,7 @@ export default {
 and load the contents to render when our App mounts
 
 ```js
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import './App.css';
 
 import { futch } from './futch';
@@ -1998,8 +1998,7 @@ now the fun part! we get to style the stills into film strips!
 <sub>./src/App.css</sub>
 ```css
 .film-strip {
-  height: 160px;
-  background-color: #5559;
+  height: 150px;
 
   display: flex;
   flex-direction: column;
@@ -2009,23 +2008,26 @@ now the fun part! we get to style the stills into film strips!
 }
 
 .film-strip .edge {
- background: repeating-linear-gradient(
+  background: repeating-linear-gradient(
     90deg,
-    transparent,
-    transparent 4%,
-    black 4%,
-    black 8%
+    black,
+    black 5px,
+    transparent 5px,
+    transparent 15px,
+    black 15px,
+    black 20px
   );
   
-  height: 20px;
-  margin: 5px 0;
+  height: 15px;
+  border-top: 5px solid black;
+  border-bottom: 5px solid black;
 }
-
 
 .film-strip .strip {
   display: flex;
   flex-direction: row;
-  margin: 0 20px;
+  width: 100%;
+  background-color: black;
 }
 
 .film-strip .cell {
@@ -2163,26 +2165,45 @@ now let's integrate our `login` function to our API Gateway
 (( this won't work in local testing due to CORS, so we will see it work in deployment ))
 
 
+<sub>./src/App.js</sub>
 ```js
+  const loadStills = ()=> fetch('/test/film-list').then(response => response.json())
+                                                  .then(stills=> setFilms( groupStills(stills.Contents) ));
+
   const login = ()=> fetch('/test/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password })
 
-  }).then(response => response.statusCode > 400 ? console.error(401) : setLoggedIn( true ))
+  }).then(response => response.status > 400 ? console.error(401) : setIsLoggedIn( true ))
+    .then(loadStills);
+  
+  const upload = ()=>{
+
+    const file = document.querySelector('input[type=file]').files[0];
+    
+    fetch('/test/s3-upload', { method: 'POST', body: JSON.stringify({ filename: file.name }), credentials: 'include' })
+      .then(response=> response.text())
+      .then(url=> {
+        
+        const body = new FormData();
+        body.append('file', file);
+
+        futch(url, {
+          method: 'PUT',
+          body,
+          headers: { "Content-Type": "multipart/form-data" },
+          
+        }, e=> {
+          console.log('uploaded', e.loaded / e.total, '%');
+          
+        }).then(res=> setTimeout(loadStills, 8000)
+        ).catch(err=> console.log('upload failed with', err));
+      });
+  };
 
 ```
 
-
-
-#### splicing the film together with (you guessed it) lambda
-
-... reuse ffmpeg layer ...
-
-... API Gateway, POST body: [ Key, .. ] ...
-
-output to public bucket, respond with URL
-
-
+also here we'll load the stills from the API and reload them after uploads
 
 
 
@@ -2191,20 +2212,420 @@ output to public bucket, respond with URL
 by deploying the site as a {proxy+} on apigateway, our cookie will be valid across all requests (login, load files)
 
 
-we'll need to write a lambda which reads the file and responds with it
+in API Gateway
 
+(Actions)-> Create Resource ... {proxy+}
+
+for the ANY method, we'll need to write a lambda which reads the file and responds with it
+
+<sub>~/code/lambda-film-studio/index.js<sub>
 ```js
 exports.handler = (event, context)=>{
   
   context.done(null, {
     "statusCode": 200,
     "headers":{
-      "Content-Type": "text/html",
+      "Content-Type": "text/" + (event.path.match(/\.css$/) ? 'css' : event.path.match(/\.js$/) ? 'javascript' : 'html'),
     },
     "body": require('fs').readFileSync('./build'+event.path).toString()
   });
 }
 ```
 
+we'll need to package the build output with this and make sure that our create-react-app uses the right base /test for all static requests
 
-https://superuser.com/questions/138331/using-ffmpeg-to-cut-up-video
+
+<sub>~/code/lambda-film-studio/package.json</sub>
+```js
+//...
+  "homepage": "/test",
+//...
+```
+
+
+`$ cd ~/code/lambda-film-studio`
+
+now we'll want to make a special deployment branch which tracks the build directory
+
+`$ git checkout -b build`
+
+`$ yarn build`
+
+now make sure that build is not in <sub>.gitignore</sub>
+
+`$ git add .`
+
+`$ git commit -m build-for-lambda`
+
+`$ git archive -o lambda.zip HEAD`
+
+
+now we can upload the resultant zip file in the lambda console
+
+`$ rm lambda.zip`
+
+`$ git checkout master`
+
+`$ git branch -D build`
+
+
+
+and after multiple hours of debugging, everything should work as expected!
+
+
+
+
+#### splicing the film together with (you guessed it) lambda
+
+we want to use the [ffmpeg concatenate command](https://trac.ffmpeg.org/wiki/Concatenate) to put some videos together
+
+
+first, let's make another project directory for the lambda
+
+`$ cd ~/code`
+
+`$ mkdir lambda-film-talk-concat`
+
+`$ cd lambda-film-talk-concat`
+
+`$ git init`
+
+`$ npm init -y`
+
+`$ touch index.js test.js config-local-json config-lambda.json`
+
+`$ npm i aws-sdk`
+
+
+
+<sub>./index.js</sub>
+```js
+const AWS = require('aws-sdk');
+
+let TO_BUCKET, FROM_BUCKET, ffmpeg, tmp;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+  AWS.config.region = 'us-west-2';
+  
+  const localConfig = require('./config-local.json');
+  TO_BUCKET = localConfig.TO_BUCKET;
+  FROM_BUCKET = localConfig.FROM_BUCKET;
+  ffmpeg = localConfig.ffmpeg;
+  tmp = localConfig.tmp;
+  
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+  FROM_BUCKET = lambdaConfig.FROM_BUCKET;
+  ffmpeg = lambdaConfig.ffmpeg;
+  tmp = lambdaConfig.tmp;
+}
+
+const s3 = new AWS.S3();
+const fs = require('fs');
+const { spawn } = require('child_process');
+
+exports.handler = (event, context)=> {
+  let films;
+  
+  if(event.isBase64Encoded) {
+    let buff = new Buffer(event.body, 'base64');
+    films = JSON.parse(buff.toString('ascii')).films;
+  } else {
+    films = JSON.parse(event.body).films;
+  }
+
+  fs.writeFileSync('./films.txt', films.reduce((txt, film)=> txt + 'file \''+film+'\'\n', ''));
+
+  // load from s3
+  
+  (new Promise((resolve, reject)=> {
+    
+    const proc = spawn(ffmpeg, ['-f', 'concat', '-i', 'films.txt', '-c', 'copy', 'output.mp4']);
+
+    let err = '';
+    proc.stderr.on('data', e=> err += e);
+    
+    proc.on('close', code=> code ? reject(err) : resolve());
+
+    // then send to s3
+
+    
+  })).then(()=>
+    context.done(null, {
+      statusCode: 200,
+      body: 'blah',
+    })
+  ).catch(err=> context.done(null, { statusCode: 500, body: err }));
+};
+
+```
+
+<sub>./test.js</sub>
+```js
+const filmConcatter = require('./');
+
+filmConcatter.handler({
+  body: JSON.stringify({ films: ['paimei.mp4', 'paimei2.mp4' ] }),
+}, {
+  done: (err, url)=> err ? console.error(err) : console.log('success!', url),
+});
+```
+
+<sub>./config-local.json</sub>
+```js
+{
+  "FROM_BUCKET": "lambda-film-talk",
+  "TO_BUCKET": "lambda-film-talk-output",
+  "ffmpeg": "ffmpeg",
+  "tmp": "./tmp"
+}
+```
+
+<sub>./config-lambda.json</sub>
+```js
+{
+  "FROM_BUCKET": "lambda-film-talk",
+  "TO_BUCKET": "lambda-film-talk-output",
+  "ffmpeg": "/opt/ffmpeg/ffmpeg",
+  "tmp": "/tmp"
+}
+```
+
+<sub>./package.json</sub>
+```js
+//...
+
+  "scripts": {
+    "test": "MODE=LOCAL node test.js"
+  },
+
+//...
+```
+
+we can test this on the shell again with `$ npm test`
+
+
+
+now let's make it work with s3
+
+
+
+<sub>./index.js</sub>
+```js
+const AWS = require('aws-sdk');
+
+let TO_BUCKET, FROM_BUCKET, ffmpeg, tmp;
+
+if( process.env.MODE === 'LOCAL' ){
+  const credentials = new AWS.SharedIniFileCredentials({
+    profile: 'default'
+  });
+  AWS.config.credentials = credentials;
+  AWS.config.region = 'us-west-2';
+  
+  const localConfig = require('./config-local.json');
+  TO_BUCKET = localConfig.TO_BUCKET;
+  FROM_BUCKET = localConfig.FROM_BUCKET;
+  ffmpeg = localConfig.ffmpeg;
+  tmp = localConfig.tmp;
+  
+} else {
+  const lambdaConfig = require('./config-lambda.json');
+  TO_BUCKET = lambdaConfig.TO_BUCKET;
+  FROM_BUCKET = lambdaConfig.FROM_BUCKET;
+  ffmpeg = lambdaConfig.ffmpeg;
+  tmp = lambdaConfig.tmp;
+}
+
+const s3 = new AWS.S3();
+const fs = require('fs');
+const { spawn } = require('child_process');
+
+exports.handler = (event, context)=> {
+  let films;
+  
+  if(event.isBase64Encoded) {
+    let buff = new Buffer(event.body, 'base64');
+    films = JSON.parse(buff.toString('ascii')).films;
+  } else {
+    films = JSON.parse(event.body).films;
+  }
+
+  fs.writeFileSync(tmp+'/films.txt', films.reduce((txt, film)=> txt + 'file \''+tmp+'/'+film+'\'\n', ''));
+
+  // load from s3
+
+  Promise.all( films.map(film=>
+    (new Promise((resolve, reject)=>
+      s3.getObject({
+        Bucket: FROM_BUCKET, Key: film
+      }, (err, response)=>{
+        if( err ) return reject(err);
+      
+        fs.writeFile(tmp+'/'+film, response.Body, err=>
+          err ? reject(err) : resolve()
+        )
+      })
+    ))
+  )).then(()=>
+    (new Promise((resolve, reject)=> {
+      
+      const proc = spawn(ffmpeg, ['-f', 'concat', '-safe', '0', '-i', tmp+'/films.txt', '-c', 'copy', tmp + '/output.mp4']);
+
+      let err = '';
+      proc.stderr.on('data', e=> err += e);
+      
+      proc.on('close', code=> code ? reject(err) : resolve());      
+    }))
+
+  ).then(()=>
+    // then send to s3
+    (new Promise((resolve, reject)=>
+
+      fs.readFile(tmp + '/output.mp4', (err, filedata)=> {
+        if( err ) return reject(err);
+
+        s3.putObject({
+          Bucket: TO_BUCKET,
+          Key: (''+Math.random()).split('.')[1] + '.mp4',
+          Body: filedata,
+          
+        }, (err, response)=>
+          err ? reject(err) : resolve()
+        );
+      })
+    ))
+    
+  ).then(()=>
+    context.done(null, {
+      statusCode: 200,
+      body: 'blah',
+    })
+  ).catch(err=> context.done(null, { statusCode: 500, body: err }));
+};
+```
+
+now we can zip and upload the same as last time.
+
+
+we'll of course reuse the ffmpeg layer we made before.
+
+
+and assign the lambda permission to access the buckets
+
+```js
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ListObjectsInBucket",
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": ["arn:aws:s3:::lambda-film-talk-upload/*"]
+        },
+        {
+            "Sid": "AllObjectActions",
+            "Effect": "Allow",
+            "Action": "s3:PutObject",
+            "Resource": ["arn:aws:s3:::lambda-film-talk/*"]
+        }
+    ]
+}
+
+```
+
+
+this function may need its timeout lengthened.
+
+
+
+in API Gateway
+
+(Actions)-> Create Resource ... concat
+(Actions)-> Create Method ... POST ... use Lambda Proxy Integration ... the lambda we just made ... remember the authorizer
+
+(Actions)-> Deploy API
+
+
+
+output to public bucket, respond with URL
+
+
+
+
+
+lastly, we'll give the user a way to trigger the concat and watch the video on the front end!
+
+
+
+<sub>./src/App.js</sub>
+```js
+
+  const [ videoName, setVideoName ] = useState('');
+
+//...
+
+  const triggerConcat = ()=> {
+    fetch('/test/concat', {
+      method: 'POST',
+      body: JSON.stringify({ films: films.map(film=> film.slug+'.mp4' ) }),
+      credentials: 'include',
+    }).then(response => response.text())
+      .then(name => console.log(name) || setVideoName(name) );
+  }
+
+
+//...
+
+        <button onClick={triggerConcat}>COMBINE!</button>
+        { videoName ? (
+            <video controls>
+              <source src={'/test/files?key='+videoName} type="video/mp4"/>
+            </video>
+        ) : null }
+
+//...
+```
+
+
+
+
+and we'll need to update the lambda-film-download for mime type
+
+```js
+```js
+const AWS = require('aws-sdk');
+
+const s3 = new AWS.S3();
+
+exports.handler = (event, context) => {
+    const params = {
+      "Bucket": "lambda-film-talk-output",
+      "Key": event.queryStringParameters.key  
+    };
+    
+    s3.getObject(params, (err, data)=>{
+        if(err) {
+           context.done(err, null);
+        } else {
+            const response = {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": event.queryStringParameters.key.match(/\.mp4$/) ?
+                    "video/mp4" : "image/png"
+                },
+                "body": data.Body.toString('base64'),
+                "isBase64Encoded": true
+            };
+    
+            context.done(null, response);
+        }
+    });
+    
+};
+```
