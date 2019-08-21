@@ -1946,6 +1946,18 @@ import stub from './stub';
 
 const url = 'testing url';
 
+const groupStills = allFiles => {
+  const filenames = allFiles.map(file => file.Key).filter(filename=> filename.match(/-out\d+\.png/));
+
+  const slugs = Array.from(new Set(
+    filenames.map(filename=> filename.slice(0, filename.lastIndexOf('-out')))
+  ));
+
+  return slugs.map(slug => ({ slug, stills: filenames.filter(filename=> filename.match(new RegExp(slug + '-out\\d\\.png'))) }));
+};
+
+
+
 function App() {
   const [ isLoggedIn, setIsLoggedIn ] = useState(false);
   const [ password, setPassword ] = useState('');
@@ -1954,25 +1966,24 @@ function App() {
   const login = ()=> Promise.resolve().then(()=> setIsLoggedIn( true ));
 
 
-  useEffect(()=> setFilms( stub.Contents ), []);
+  useEffect(()=> setFilms( groupStills(stub.Contents) ), []);
 
   //...
-          <div className='film-strip'>
-            <div className='edge'/>
-            <div className='strip'>
-
-              {
-                films.filter(film=> film.Key.match(/\.png$/))
-                     .map(film => (
-                       <div key={film.Key}>
-                         <img style={{ height: 100, width: 'auto' }}
-                              src={'YOUR API GATEWAY DOMAIN /test/files?key='+film.Key}/>
-                       </div>
-                     ))
-              }
-            </div>
-            <div className='edge'/>
-          </div>
+              {films.map(film => (
+                <div className='film-strip' key={film.slug}>
+                  <div className='edge'/>
+                  <div className='strip'>
+                    {
+                      film.stills.map(still => (
+                        <div key={still} className='cell'>
+                          <img alt='' src={'YOUR API GATEWAY DOMAIN/test/files?key='+still}/>
+                        </div>
+                      ))
+                    }
+                  </div>
+                  <div className='edge'/>
+                </div>
+              ))}
 
 
 ```
@@ -1992,6 +2003,8 @@ now the fun part! we get to style the stills into film strips!
   display: flex;
   flex-direction: column;
   justify-content: space-around;
+
+  margin: 10px;
 }
 
 .film-strip .edge {
@@ -2051,10 +2064,37 @@ now let's integrate our `login` function to our API Gateway
 
 
 
+#### splicing the film together with (you guessed it) lambda
+
+... reuse ffmpeg layer ...
+
+... API Gateway, POST body: [ Key, .. ] ...
+
+output to public bucket, respond with URL
+
+
+
+
+
 #### deployment of our create-react-app to lambda + api gateway
 
 by deploying the site as a {proxy+} on apigateway, our cookie will be valid across all requests (login, load files)
 
+
+we'll need to write a lambda which reads the file and responds with it
+
+```js
+exports.handler = (event, context)=>{
+  
+  context.done(null, {
+    "statusCode": 200,
+    "headers":{
+      "Content-Type": "text/html",
+    },
+    "body": require('fs').readFileSync('./build'+event.path).toString()
+  });
+}
+```
 
 
 https://superuser.com/questions/138331/using-ffmpeg-to-cut-up-video
