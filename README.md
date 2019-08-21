@@ -1722,13 +1722,14 @@ very nice!
 
 ## putting it all together
 
+ - display film strips
  - drag and drop film strips
  - deploying our frontend in lambda
  - one more lambda to splice film together
  - https://github.com/atlassian/react-beautiful-dnd
 
 
-### drag and drop film strips
+### display film strips
 
 to display our film cuts (which we'll be splicing together) we need to load the list of files in the S3
 
@@ -2046,7 +2047,12 @@ now the fun part! we get to style the stills into film strips!
 ```
 
 
-(next ... drag and drop)
+
+### drag and drop film strips
+
+`$ cd ~/code/lambda-film-studio`
+
+`$ yarn add react-beautiful-dnd`
 
 
 
@@ -2061,6 +2067,16 @@ now the fun part! we get to style the stills into film strips!
 now let's integrate our `login` function to our API Gateway
 
 (( this won't work in local testing due to CORS, so we will see it work in deployment ))
+
+
+```js
+  const login = ()=> fetch('/test/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+
+  }).then(response => response.statusCode > 400 ? console.error(401) : setLoggedIn( true ))
+
+```
 
 
 
