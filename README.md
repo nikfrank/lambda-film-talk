@@ -2055,7 +2055,101 @@ now the fun part! we get to style the stills into film strips!
 `$ yarn add react-beautiful-dnd`
 
 
+<sub>./src/App.js</sub>
+```js
+//...
 
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+
+//...
+
+const getListStyle = isDraggingOver => ({
+  background: isDraggingOver ? "lightblue" : "lightgrey",
+  minHeight: 500
+});
+
+const getItemStyle = (isDragging, draggableStyle) => ({
+  userSelect: "none",
+  background: isDragging ? "lightgreen" : "grey",
+  ...draggableStyle
+});
+
+const reorder = (list, startIndex, endIndex) => {
+  const result = Array.from(list);
+  const [removed] = result.splice(startIndex, 1);
+  result.splice(endIndex, 0, removed);
+
+  return result;
+};
+
+//...
+
+
+  const onDragEnd = result => {
+    if (!result.destination) return;
+
+    const nextFilms = reorder(
+      films,
+      result.source.index,
+      result.destination.index
+    );
+
+    setFilms(nextFilms);
+  };
+
+
+  //...
+
+
+              <DragDropContext onDragEnd={onDragEnd}>
+                <Droppable droppableId="droppable">
+                  {(provided, snapshot) => (
+                    <div
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      style={getListStyle(snapshot.isDraggingOver)}>
+                      
+                      {films.map((film, fi) => (
+                        <Draggable key={film.slug} draggableId={film.slug} index={fi}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              style={getItemStyle(
+                                  snapshot.isDragging,
+                                  provided.draggableProps.style
+                              )}
+                              >
+                              <div className='film-strip'>
+                                <div className='edge'/>
+                                <div className='strip'>
+                                  {
+                                    film.stills.map(still => (
+                                      <div key={still} className='cell'>
+                                        {still}
+                                        <img alt=''
+                                             src={'https://3k92h7oq73.execute-api.us-west-2.amazonaws.com/test/files?key='+still}/>
+                                      </div>
+                                    ))
+                                  }
+                                </div>
+                                <div className='edge'/>
+                              </div>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </DragDropContext>
+
+```
+
+
+based on the example provided [in the docs](https://codesandbox.io/s/k260nyxq9v)
 
 
 
