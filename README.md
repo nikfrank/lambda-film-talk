@@ -1904,10 +1904,31 @@ we should see something like
 so now in our front end (lambda-film-studio) we can make a mock network handler with some local images
 
 
+`$ cd ~/code/lambda-film-studio`
 
-<sub>~/code/lambda-film-studio</sub>
+`$ touch src/stub.js`
+
+
+<sub>~/code/lambda-film-studio/src/stub.js</sub>
 ```js
-//...
+export default {
+    "IsTruncated": false,
+    "Contents": [
+        {
+            "Key": "five-out1.png",
+            "LastModified": "2019-08-20T19:21:25.000Z",
+            "ETag": "\"2c8eae17e9f01eb5771b4734c63b0440\"",
+            "Size": 693130,
+            "StorageClass": "STANDARD"
+        },
+        //... etc, the response from your lambda API route
+    ],
+    "Name": "lambda-film-talk-output",
+    "Prefix": "",
+    "MaxKeys": 1000,
+    "CommonPrefixes": [],
+    "KeyCount": 18
+}
 ```
 
 
@@ -1915,8 +1936,48 @@ so now in our front end (lambda-film-studio) we can make a mock network handler 
 and load the contents to render when our App mounts
 
 ```js
-//...
+import React, { useState, useEffect } from 'react';
+import './App.css';
+
+import { futch } from './futch';
+
+import stub from './stub';
+
+
+const url = 'testing url';
+
+function App() {
+  const [ isLoggedIn, setIsLoggedIn ] = useState(false);
+  const [ password, setPassword ] = useState('');
+  const [ films, setFilms ] = useState([]);
+  
+  const login = ()=> Promise.resolve().then(()=> setIsLoggedIn( true ));
+
+
+  useEffect(()=> setFilms( stub.Contents ), []);
+
+  //...
+          <div className='film-strip'>
+            <div className='edge'/>
+            <div className='strip'>
+
+              {
+                films.filter(film=> film.Key.match(/\.png$/))
+                     .map(film => (
+                       <div key={film.Key}>
+                         <img style={{ height: 100, width: 'auto' }}
+                              src={'YOUR API GATEWAY DOMAIN /test/files?key='+film.Key}/>
+                       </div>
+                     ))
+              }
+            </div>
+            <div className='edge'/>
+          </div>
+
+
 ```
+
+wonderful! the images are showing up (I'm using a cookie chrome extension to get through the authorizer)
 
 
 now the fun part! we get to style the stills into film strips!
@@ -1924,7 +1985,51 @@ now the fun part! we get to style the stills into film strips!
 
 <sub>./src/App.css</sub>
 ```css
-//...
+.film-strip {
+  height: 160px;
+  background-color: #5559;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+}
+
+.film-strip .edge {
+ background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 4%,
+    black 4%,
+    black 8%
+  );
+  
+  height: 20px;
+  margin: 5px 0;
+}
+
+
+.film-strip .strip {
+  display: flex;
+  flex-direction: row;
+  margin: 0 20px;
+}
+
+.film-strip .cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  width: 120px;
+  height: 100px;
+  margin: 0 8px;
+
+  overflow: hidden;
+}
+
+.film-strip .cell img {
+  height: 100px;
+  width: auto;
+}
 ```
 
 
