@@ -18,6 +18,6 @@
   },
   "homepage": "https://github.com/nikfrank/lambda-film-talk#readme",
   "dependencies": {
-    "aws-sdk": "^2.512.0"
+    "aws-sdk": "^2.814.0"
   }
 }
